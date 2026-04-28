@@ -69,7 +69,7 @@ app.post("/ai-order", async (req, res) => {
     .from("orders")
     .insert([
       {
-        snack_id,
+        business_id,
         client_phone,
         items: { product, quantity: 1 },
         total_price: price,
