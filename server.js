@@ -1,4 +1,3 @@
-
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -11,7 +10,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Test route
+// 🔹 Route test (afficher menu)
 app.get("/", async (req, res) => {
   const { data, error } = await supabase
     .from("menus")
@@ -22,6 +21,29 @@ app.get("/", async (req, res) => {
   }
 
   res.json(data);
+});
+
+// 🔹 Route pour créer une commande
+app.post("/order", async (req, res) => {
+  const { snack_id, client_phone, items, total_price } = req.body;
+
+  const { data, error } = await supabase
+    .from("orders")
+    .insert([
+      {
+        snack_id,
+        client_phone,
+        items,
+        total_price,
+        status: "new"
+      }
+    ]);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ message: "Order created", data });
 });
 
 const PORT = process.env.PORT || 3000;
