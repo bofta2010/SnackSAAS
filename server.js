@@ -5,28 +5,33 @@ const fetch = require("node-fetch");
 const app = express();
 app.use(express.json());
 
-// ENV
+// ================= ENV =================
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "mon_token_secret_123";
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const BASE_URL = process.env.BASE_URL;
 
-// SUPABASE
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+
+// ================= SUPABASE =================
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// TEST
+// ================= TEST =================
 app.get("/", (req, res) => {
   res.send("Server is running 🚀");
 });
 
-// MENU
+// ================= MENU =================
 app.get("/menu", async (req, res) => {
   const { data, error } = await supabase.from("menus").select("*");
+
   if (error) return res.status(500).json({ error: error.message });
+
   res.json(data);
 });
 
-// ORDER
+// ================= ORDER =================
 app.post("/order", async (req, res) => {
   const { snack_id, client_phone, items, total_price } = req.body;
 
@@ -40,7 +45,7 @@ app.post("/order", async (req, res) => {
   res.json({ message: "Order created", data });
 });
 
-// AI ORDER
+// ================= AI ORDER =================
 app.post("/ai-order", async (req, res) => {
   const { message, business_id, client_phone } = req.body;
 
@@ -70,26 +75,45 @@ app.post("/ai-order", async (req, res) => {
   res.json({ message: "AI order created", data });
 });
 
-// META WHATSAPP VERIFY
+// ================= WHATSAPP SEND =================
+async function sendWhatsAppMessage(to, text) {
+  try {
+    await fetch(
+      `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: to,
+          text: { body: text },
+        }),
+      }
+    );
+  } catch (error) {
+    console.error("Error sending message:", error);
+  }
+}
 
+// ================= WEBHOOK VERIFY =================
 app.get("/webhook", (req, res) => {
-  console.log("QUERY RECEIVED:", req.query);
-
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  console.log("MODE:", mode);
-  console.log("TOKEN:", token);
-  console.log("EXPECTED:", process.env.VERIFY_TOKEN);
-
-  if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ Webhook verified");
     return res.status(200).send(challenge);
   }
 
-  return res.status(403).send("Forbidden");
+  console.log("❌ Webhook verification failed");
+  return res.sendStatus(403);
 });
-// WHATSAPP RECEIVE MESSAGE
+
+// ================= WEBHOOK RECEIVE =================
 app.post("/webhook", async (req, res) => {
   try {
     const body = req.body;
@@ -101,28 +125,38 @@ app.post("/webhook", async (req, res) => {
       const from = msg.from;
       const text = msg.text?.body;
 
-      console.log("Message:", text);
+      console.log("📩 Message reçu:", text);
 
+      // 🔁 Appel IA (création commande)
       await fetch(`${BASE_URL}/ai-order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           message: text,
           client_phone: from,
           business_id: "test",
         }),
       });
+
+      // ✅ Réponse WhatsApp
+      await sendWhatsAppMessage(
+        from,
+        `✅ Commande reçue : ${text}\nMerci pour votre confiance 🙌`
+      );
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error webhook:", err);
     res.sendStatus(500);
   }
 });
 
-// START
+// ================= START =================
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
