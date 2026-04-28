@@ -39,6 +39,8 @@ app.post("/order", async (req, res) => {
       }
     ]);
 
+  
+
   if (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -49,4 +51,38 @@ app.post("/order", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
+});
+
+app.post("/ai-order", async (req, res) => {
+  const { message, snack_id, client_phone } = req.body;
+
+  // 🧠 mini "AI" simple (version MVP)
+  let product = "Burger";
+  let price = 30;
+
+  if (message.toLowerCase().includes("coca")) {
+    product = "Burger + Coca";
+    price = 40;
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .insert([
+      {
+        snack_id,
+        client_phone,
+        items: { product, quantity: 1 },
+        total_price: price,
+        status: "new"
+      }
+    ]);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({
+    message: "AI order created",
+    order: data
+  });
 });
