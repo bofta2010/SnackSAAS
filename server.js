@@ -77,7 +77,8 @@ app.post("/ai-order", async (req, res) => {
           total_price: price,
           status: "new"
         }
-      ]);
+      ])
+      .select();
 
     if (error) {
       return res.status(500).json({ error: error.message });
