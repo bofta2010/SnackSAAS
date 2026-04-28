@@ -46,11 +46,21 @@ async function sendWhatsAppMessage(to, text) {
 }
 
 // ================= AGENT LOGIC =================
+
 async function agent(from, text) {
   text = text?.toLowerCase();
 
-  // 🔥 1. INSCRIPTION START
-  if (text === "inscription") {
+  // 🔥 1. CHECK BUSINESS FIRST
+  const { data } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("phone", from)
+    .limit(1);
+
+  const business = data?.[0];
+
+  // 🔥 2. INSCRIPTION (UNIQUEMENT SI PAS BUSINESS)
+  if (text === "inscription" && !business) {
     await supabase.from("businesses").insert([
       {
         phone: from,
@@ -59,23 +69,17 @@ async function agent(from, text) {
       },
     ]);
 
-    return `🌟 Bienvenue chez AI Business Assistant
+    return `🌟 Bienvenue
 
 🏪 Quel est le nom de votre commerce ?`;
   }
 
-  // 🔥 2. GET BUSINESS
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("*")
-    .eq("phone", from)
-    .single();
-
+  // 🔥 3. SI PAS BUSINESS
   if (!business) {
     return "Écrivez INSCRIPTION pour commencer 👋";
   }
 
-  // 🔥 3. STEP: ASK NAME
+  // 🔥 4. STEP NAME
   if (business.step === "ask_name") {
     await supabase
       .from("businesses")
@@ -88,7 +92,7 @@ async function agent(from, text) {
     return "📌 Quelle est la catégorie de votre commerce ?";
   }
 
-  // 🔥 4. STEP: ASK CATEGORY
+  // 🔥 5. STEP CATEGORY
   if (business.step === "ask_category") {
     await supabase
       .from("businesses")
@@ -99,23 +103,13 @@ async function agent(from, text) {
       })
       .eq("phone", from);
 
-    return `🎉 Votre espace est activé !
+    return `🎉 Compte activé !
 
-Vous pouvez maintenant :
-• Ajouter des produits
-• Recevoir des commandes
-
-👉 Écrivez "ajouter produit"`;
-  }
-
-  // 🔥 5. CLIENT DEFAULT
-  if (text === "menu") {
-    return "🍔 Menu en cours de configuration...";
+Vous pouvez maintenant ajouter vos produits.`;
   }
 
   return "Je n'ai pas compris 🤔";
 }
-
 // ================= WEBHOOK VERIFY =================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
