@@ -53,36 +53,42 @@ app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
 
+
+
 app.post("/ai-order", async (req, res) => {
-  const { message, snack_id, client_phone } = req.body;
+  try {
+    const { message, business_id, client_phone } = req.body;
 
-  // 🧠 mini "AI" simple (version MVP)
-  let product = "Burger";
-  let price = 30;
+    let product = "Burger";
+    let price = 30;
 
-  if (message.toLowerCase().includes("coca")) {
-    product = "Burger + Coca";
-    price = 40;
+    if (message && message.toLowerCase().includes("coca")) {
+      product = "Burger + Coca";
+      price = 40;
+    }
+
+    const { data, error } = await supabase
+      .from("orders")
+      .insert([
+        {
+          business_id,
+          client_phone,
+          items: { product, quantity: 1 },
+          total_price: price,
+          status: "new"
+        }
+      ]);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({
+      message: "AI order created",
+      data
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const { data, error } = await supabase
-    .from("orders")
-    .insert([
-      {
-        business_id,
-        client_phone,
-        items: { product, quantity: 1 },
-        total_price: price,
-        status: "new"
-      }
-    ]);
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  res.json({
-    message: "AI order created",
-    order: data
-  });
 });
