@@ -9,7 +9,6 @@ app.use(express.json());
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const BASE_URL = process.env.BASE_URL;
 
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
@@ -17,12 +16,12 @@ const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 // ================= SUPABASE =================
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ================= TEST =================
+// ================= HOME =================
 app.get("/", (req, res) => {
-  res.send("Server is running 🚀");
+  res.send("🚀 Server running");
 });
 
-// ================= WHATSAPP SEND =================
+// ================= SEND WHATSAPP =================
 async function sendWhatsAppMessage(to, text) {
   try {
     await fetch(
@@ -41,7 +40,7 @@ async function sendWhatsAppMessage(to, text) {
       }
     );
   } catch (err) {
-    console.error("WhatsApp send error:", err);
+    console.error("WhatsApp error:", err);
   }
 }
 
@@ -49,7 +48,28 @@ async function sendWhatsAppMessage(to, text) {
 async function agent(from, text) {
   text = text?.trim().toLowerCase();
 
-  // 🔥 1. GET BUSINESS
+  // ================= GET CONVERSATION =================
+  let { data: convData } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("phone", from)
+    .limit(1);
+
+  let conversation = convData?.[0];
+
+  if (!conversation) {
+    await supabase.from("conversations").insert([
+      {
+        phone: from,
+        step: "idle",
+        context: {},
+      },
+    ]);
+
+    conversation = { step: "idle" };
+  }
+
+  // ================= GET BUSINESS =================
   const { data: bizData } = await supabase
     .from("businesses")
     .select("*")
@@ -58,52 +78,54 @@ async function agent(from, text) {
 
   const business = bizData?.[0];
 
-  // 🔥 2. INSCRIPTION
+  // ================= INSCRIPTION =================
   if (text === "inscription") {
-    if (!business) {
-      await supabase.from("businesses").insert([
-        {
-          phone: from,
-          step: "ask_name",
-          status: "pending",
-        },
-      ]);
+    await supabase
+      .from("conversations")
+      .update({ step: "ask_name" })
+      .eq("phone", from);
 
-      return `🌟 Bienvenue
+    return `🌟 Bienvenue chez AI Assistant
 
 🏪 Quel est le nom de votre commerce ?`;
-    }
-
-    return "Vous êtes déjà inscrit 👍";
   }
 
-  // 🔥 3. SI PAS BUSINESS
-  if (!business) {
+  // ================= NO BUSINESS =================
+  if (!business && conversation.step === "idle") {
     return "Écrivez INSCRIPTION pour commencer 👋";
   }
 
-  // 🔥 4. STEP: NAME
-  if (business.step === "ask_name") {
-    await supabase
-      .from("businesses")
-      .update({
+  // ================= STEP: NAME =================
+  if (conversation.step === "ask_name") {
+    await supabase.from("businesses").insert([
+      {
+        phone: from,
         name: text,
-        step: "ask_category",
-      })
+        status: "pending",
+      },
+    ]);
+
+    await supabase
+      .from("conversations")
+      .update({ step: "ask_category" })
       .eq("phone", from);
 
     return "📌 Quelle est la catégorie de votre commerce ?";
   }
 
-  // 🔥 5. STEP: CATEGORY
-  if (business.step === "ask_category") {
+  // ================= STEP: CATEGORY =================
+  if (conversation.step === "ask_category") {
     await supabase
       .from("businesses")
       .update({
         category: text,
-        step: "active",
         status: "active",
       })
+      .eq("phone", from);
+
+    await supabase
+      .from("conversations")
+      .update({ step: "active" })
       .eq("phone", from);
 
     return `🎉 Compte activé !
@@ -121,7 +143,6 @@ app.get("/webhook", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verified");
     return res.status(200).send(challenge);
   }
 
@@ -155,5 +176,5 @@ app.post("/webhook", async (req, res) => {
 // ================= START =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on", PORT);
+  console.log("Server running on port", PORT);
 });
