@@ -22,59 +22,6 @@ app.get("/", (req, res) => {
   res.send("Server is running 🚀");
 });
 
-// ================= MENU =================
-app.get("/menu", async (req, res) => {
-  const { data, error } = await supabase.from("menus").select("*");
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json(data);
-});
-
-// ================= ORDER =================
-app.post("/order", async (req, res) => {
-  const { snack_id, client_phone, items, total_price } = req.body;
-
-  const { data, error } = await supabase
-    .from("orders")
-    .insert([{ snack_id, client_phone, items, total_price, status: "new" }])
-    .select();
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({ message: "Order created", data });
-});
-
-// ================= AI ORDER =================
-app.post("/ai-order", async (req, res) => {
-  const { message, business_id, client_phone } = req.body;
-
-  let product = "Burger";
-  let price = 30;
-
-  if (message?.toLowerCase().includes("coca")) {
-    product = "Burger + Coca";
-    price = 40;
-  }
-
-  const { data, error } = await supabase
-    .from("orders")
-    .insert([
-      {
-        business_id,
-        client_phone,
-        items: { product, quantity: 1 },
-        total_price: price,
-        status: "new",
-      },
-    ])
-    .select();
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({ message: "AI order created", data });
-});
-
 // ================= WHATSAPP SEND =================
 async function sendWhatsAppMessage(to, text) {
   try {
@@ -88,14 +35,85 @@ async function sendWhatsAppMessage(to, text) {
         },
         body: JSON.stringify({
           messaging_product: "whatsapp",
-          to: to,
+          to,
           text: { body: text },
         }),
       }
     );
-  } catch (error) {
-    console.error("Error sending message:", error);
+  } catch (err) {
+    console.error("WhatsApp send error:", err);
   }
+}
+
+// ================= AGENT LOGIC =================
+async function agent(from, text) {
+  text = text?.toLowerCase();
+
+  // 🔥 1. INSCRIPTION START
+  if (text === "inscription") {
+    await supabase.from("businesses").insert([
+      {
+        phone: from,
+        step: "ask_name",
+        status: "pending",
+      },
+    ]);
+
+    return `🌟 Bienvenue chez AI Business Assistant
+
+🏪 Quel est le nom de votre commerce ?`;
+  }
+
+  // 🔥 2. GET BUSINESS
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("phone", from)
+    .single();
+
+  if (!business) {
+    return "Écrivez INSCRIPTION pour commencer 👋";
+  }
+
+  // 🔥 3. STEP: ASK NAME
+  if (business.step === "ask_name") {
+    await supabase
+      .from("businesses")
+      .update({
+        name: text,
+        step: "ask_category",
+      })
+      .eq("phone", from);
+
+    return "📌 Quelle est la catégorie de votre commerce ?";
+  }
+
+  // 🔥 4. STEP: ASK CATEGORY
+  if (business.step === "ask_category") {
+    await supabase
+      .from("businesses")
+      .update({
+        category: text,
+        step: "active",
+        status: "active",
+      })
+      .eq("phone", from);
+
+    return `🎉 Votre espace est activé !
+
+Vous pouvez maintenant :
+• Ajouter des produits
+• Recevoir des commandes
+
+👉 Écrivez "ajouter produit"`;
+  }
+
+  // 🔥 5. CLIENT DEFAULT
+  if (text === "menu") {
+    return "🍔 Menu en cours de configuration...";
+  }
+
+  return "Je n'ai pas compris 🤔";
 }
 
 // ================= WEBHOOK VERIFY =================
@@ -105,58 +123,41 @@ app.get("/webhook", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verified");
+    console.log("Webhook verified");
     return res.status(200).send(challenge);
   }
 
-  console.log("❌ Webhook verification failed");
   return res.sendStatus(403);
 });
 
 // ================= WEBHOOK RECEIVE =================
 app.post("/webhook", async (req, res) => {
   try {
-    const body = req.body;
-
     const msg =
-      body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
     if (msg) {
       const from = msg.from;
       const text = msg.text?.body;
 
-      console.log("📩 Message reçu:", text);
+      console.log("Message:", text);
 
-      // 🔁 Appel IA (création commande)
-      await fetch(`${BASE_URL}/ai-order`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: text,
-          client_phone: from,
-          business_id: "test",
-        }),
-      });
+      // 🤖 AGENT RESPONSE
+      const reply = await agent(from, text);
 
-      // ✅ Réponse WhatsApp
-      await sendWhatsAppMessage(
-        from,
-        `✅ Commande reçue : ${text}\nMerci pour votre confiance 🙌`
-      );
+      // 📤 SEND RESPONSE
+      await sendWhatsAppMessage(from, reply);
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ Error webhook:", err);
+    console.error(err);
     res.sendStatus(500);
   }
 });
 
 // ================= START =================
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("Server running on", PORT);
 });
