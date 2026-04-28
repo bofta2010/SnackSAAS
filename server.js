@@ -45,33 +45,36 @@ async function sendWhatsAppMessage(to, text) {
   }
 }
 
-// ================= AGENT LOGIC =================
-
+// ================= AGENT =================
 async function agent(from, text) {
-  text = text?.toLowerCase();
+  text = text?.trim().toLowerCase();
 
-  // 🔥 1. CHECK BUSINESS FIRST
-  const { data } = await supabase
+  // 🔥 1. GET BUSINESS
+  const { data: bizData } = await supabase
     .from("businesses")
     .select("*")
     .eq("phone", from)
     .limit(1);
 
-  const business = data?.[0];
+  const business = bizData?.[0];
 
-  // 🔥 2. INSCRIPTION (UNIQUEMENT SI PAS BUSINESS)
-  if (text === "inscription" && !business) {
-    await supabase.from("businesses").insert([
-      {
-        phone: from,
-        step: "ask_name",
-        status: "pending",
-      },
-    ]);
+  // 🔥 2. INSCRIPTION
+  if (text === "inscription") {
+    if (!business) {
+      await supabase.from("businesses").insert([
+        {
+          phone: from,
+          step: "ask_name",
+          status: "pending",
+        },
+      ]);
 
-    return `🌟 Bienvenue
+      return `🌟 Bienvenue
 
 🏪 Quel est le nom de votre commerce ?`;
+    }
+
+    return "Vous êtes déjà inscrit 👍";
   }
 
   // 🔥 3. SI PAS BUSINESS
@@ -79,7 +82,7 @@ async function agent(from, text) {
     return "Écrivez INSCRIPTION pour commencer 👋";
   }
 
-  // 🔥 4. STEP NAME
+  // 🔥 4. STEP: NAME
   if (business.step === "ask_name") {
     await supabase
       .from("businesses")
@@ -92,7 +95,7 @@ async function agent(from, text) {
     return "📌 Quelle est la catégorie de votre commerce ?";
   }
 
-  // 🔥 5. STEP CATEGORY
+  // 🔥 5. STEP: CATEGORY
   if (business.step === "ask_category") {
     await supabase
       .from("businesses")
@@ -110,6 +113,7 @@ Vous pouvez maintenant ajouter vos produits.`;
 
   return "Je n'ai pas compris 🤔";
 }
+
 // ================= WEBHOOK VERIFY =================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -130,18 +134,16 @@ app.post("/webhook", async (req, res) => {
     const msg =
       req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
-    if (msg) {
-      const from = msg.from;
-      const text = msg.text?.body;
+    if (!msg) return res.sendStatus(200);
 
-      console.log("Message:", text);
+    const from = msg.from;
+    const text = msg.text?.body;
 
-      // 🤖 AGENT RESPONSE
-      const reply = await agent(from, text);
+    console.log("Message:", text);
 
-      // 📤 SEND RESPONSE
-      await sendWhatsAppMessage(from, reply);
-    }
+    const reply = await agent(from, text);
+
+    await sendWhatsAppMessage(from, reply);
 
     res.sendStatus(200);
   } catch (err) {
