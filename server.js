@@ -70,15 +70,28 @@ async function agent(from, text, business) {
 
   // ================= NO BUSINESS → START =================
   if (!business) {
-    await supabase.from("businesses").insert([
+  console.log("❌ BUSINESS NOT FOUND");
+
+  const { data, error } = await supabase
+    .from("businesses")
+    .insert([
       {
         phone: from,
         step: "ask_name",
       },
-    ]);
+    ])
+    .select()
+    .single();
 
-    return "👋 Bienvenue ! Quel est le nom de votre commerce ?";
+  console.log("🟢 INSERT DATA:", data);
+  console.log("🔴 INSERT ERROR:", error);
+
+  if (error) {
+    return `Erreur DB: ${error.message}`;
   }
+
+  return "👋 Bienvenue ! Quel est le nom de votre commerce ?";
+}
 
   // ================= STEP 1: NAME =================
   if (business.step === "ask_name") {
