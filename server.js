@@ -9,132 +9,88 @@ app.use(express.json());
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-// ================= SUPABASE =================
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ================= HOME =================
+// ================= TEST =================
 app.get("/", (req, res) => {
-  res.send("🚀 Server running");
+  res.send("🚀 WhatsApp SaaS running");
 });
 
-// ================= SEND WHATSAPP =================
-async function sendWhatsAppMessage(to, text) {
-  try {
-    await fetch(
-      `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          text: { body: text },
-        }),
-      }
-    );
-  } catch (err) {
-    console.error("WhatsApp error:", err);
-  }
+
+// ================= WHATSAPP SEND =================
+async function sendWhatsAppMessage(to, text, phoneNumberId) {
+  await fetch(
+    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        text: { body: text },
+      }),
+    }
+  );
 }
 
+
 // ================= AGENT =================
-async function agent(from, text) {
-  text = text?.trim().toLowerCase();
+async function agent(from, text, business) {
+  text = text?.toLowerCase();
 
-  // ================= GET CONVERSATION =================
-  let { data: convData } = await supabase
-    .from("conversations")
-    .select("*")
-    .eq("phone", from)
-    .limit(1);
+  // INSCRIPTION FLOW
+  if (!business) {
+    const { data } = await supabase
+      .from("businesses")
+      .insert([{ phone: from, step: "ask_name" }])
+      .select()
+      .single();
 
-  let conversation = convData?.[0];
-
-  if (!conversation) {
-    await supabase.from("conversations").insert([
-      {
-        phone: from,
-        step: "idle",
-        context: {},
-      },
-    ]);
-
-    conversation = { step: "idle" };
+    return "👋 Bienvenue ! Quel est le nom de votre commerce ?";
   }
 
-  // ================= GET BUSINESS =================
-  const { data: bizData } = await supabase
-    .from("businesses")
-    .select("*")
-    .eq("phone", from)
-    .limit(1);
-
-  const business = bizData?.[0];
-
-  // ================= INSCRIPTION =================
-  if (text === "inscription") {
+  if (business.step === "ask_name") {
     await supabase
-      .from("conversations")
-      .update({ step: "ask_name" })
-      .eq("phone", from);
-
-    return `🌟 Bienvenue chez AI Assistant
-
-🏪 Quel est le nom de votre commerce ?`;
-  }
-
-  // ================= NO BUSINESS =================
-  if (!business && conversation.step === "idle") {
-    return "Écrivez INSCRIPTION pour commencer 👋";
-  }
-
-  // ================= STEP: NAME =================
-  if (conversation.step === "ask_name") {
-    await supabase.from("businesses").insert([
-      {
-        phone: from,
-        name: text,
-        status: "pending",
-      },
-    ]);
-
-    await supabase
-      .from("conversations")
-      .update({ step: "ask_category" })
+      .from("businesses")
+      .update({ name: text, step: "ask_category" })
       .eq("phone", from);
 
     return "📌 Quelle est la catégorie de votre commerce ?";
   }
 
-  // ================= STEP: CATEGORY =================
-  if (conversation.step === "ask_category") {
+  if (business.step === "ask_category") {
     await supabase
       .from("businesses")
-      .update({
-        category: text,
-        status: "active",
-      })
+      .update({ category: text, step: "connect_whatsapp" })
       .eq("phone", from);
 
-    await supabase
-      .from("conversations")
-      .update({ step: "active" })
-      .eq("phone", from);
+    return `🎉 Inscription terminée !
 
-    return `🎉 Compte activé !
-
-Vous pouvez maintenant ajouter vos produits.`;
+📲 Maintenant connectez votre WhatsApp ici :
+https://ton-domaine.com/connect/${business.id}`;
   }
 
-  return "Je n'ai pas compris 🤔";
+  // ACTIVE STATE
+  if (business.step === "connect_whatsapp") {
+    return "⚠️ Vous devez connecter votre WhatsApp pour activer le service.";
+  }
+
+  if (business.step === "active") {
+    if (text.includes("menu")) {
+      return "🍔 Menu: Burger 30dh, Pizza 50dh";
+    }
+
+    return "🤖 Je suis votre assistant. Tapez 'menu' pour voir les produits.";
+  }
+
+  return "Commande non reconnue.";
 }
+
 
 // ================= WEBHOOK VERIFY =================
 app.get("/webhook", (req, res) => {
@@ -149,22 +105,32 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+
 // ================= WEBHOOK RECEIVE =================
 app.post("/webhook", async (req, res) => {
   try {
-    const msg =
-      req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+
+    const msg = value?.messages?.[0];
+    const phone_number_id = value?.metadata?.phone_number_id;
 
     if (!msg) return res.sendStatus(200);
 
     const from = msg.from;
     const text = msg.text?.body;
 
-    console.log("Message:", text);
+    // FIND BUSINESS BY PHONE NUMBER ID
+    const { data: business } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("whatsapp_phone_number_id", phone_number_id)
+      .maybeSingle();
 
-    const reply = await agent(from, text);
+    // AGENT RESPONSE
+    const reply = await agent(from, text, business);
 
-    await sendWhatsAppMessage(from, reply);
+    // SEND MESSAGE
+    await sendWhatsAppMessage(from, reply, phone_number_id);
 
     res.sendStatus(200);
   } catch (err) {
@@ -173,8 +139,9 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
+
 // ================= START =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("🚀 Server running on", PORT);
 });
