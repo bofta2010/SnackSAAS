@@ -123,7 +123,7 @@ async function agent(from, text, business) {
     return `🎉 Inscription terminée !
 
 📲 Maintenant connectez votre Whatsapp Ici:
-${BASE_URL}/connect/${business.id}
+${BASE_URL}/connect/${business.id}';
   }
 
   // ================= CONNECT WHATSAPP =================
