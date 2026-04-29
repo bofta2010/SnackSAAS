@@ -18,8 +18,7 @@ app.get("/", (req, res) => {
   res.send("🚀 WhatsApp SaaS running");
 });
 
-
-// ================= WHATSAPP SEND =================
+// ================= SEND WHATSAPP =================
 async function sendWhatsAppMessage(to, text, phoneNumberId) {
   await fetch(
     `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -38,35 +37,70 @@ async function sendWhatsAppMessage(to, text, phoneNumberId) {
   );
 }
 
+// ================= FIND BUSINESS (IMPORTANT FIX) =================
+async function findBusiness(from, phone_number_id) {
+  let business = null;
+
+  // 1. try WhatsApp API routing
+  if (phone_number_id) {
+    const { data } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("whatsapp_phone_number_id", phone_number_id)
+      .maybeSingle();
+
+    if (data) return data;
+  }
+
+  // 2. fallback onboarding (phone-based)
+  const { data } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("phone", from)
+    .maybeSingle();
+
+  if (data) return data;
+
+  return null;
+}
 
 // ================= AGENT =================
 async function agent(from, text, business) {
-  text = text?.toLowerCase();
+  text = text?.trim();
 
-  // INSCRIPTION FLOW
+  // ================= NO BUSINESS → START =================
   if (!business) {
-    const { data } = await supabase
-      .from("businesses")
-      .insert([{ phone: from, step: "ask_name" }])
-      .select()
-      .single();
+    await supabase.from("businesses").insert([
+      {
+        phone: from,
+        step: "ask_name",
+      },
+    ]);
 
     return "👋 Bienvenue ! Quel est le nom de votre commerce ?";
   }
 
+  // ================= STEP 1: NAME =================
   if (business.step === "ask_name") {
     await supabase
       .from("businesses")
-      .update({ name: text, step: "ask_category" })
+      .update({
+        name: text,
+        step: "ask_category",
+      })
       .eq("phone", from);
 
     return "📌 Quelle est la catégorie de votre commerce ?";
   }
 
+  // ================= STEP 2: CATEGORY =================
   if (business.step === "ask_category") {
     await supabase
       .from("businesses")
-      .update({ category: text, step: "connect_whatsapp" })
+      .update({
+        category: text,
+        step: "connect_whatsapp",
+      })
       .eq("phone", from);
 
     return `🎉 Inscription terminée !
@@ -75,22 +109,22 @@ async function agent(from, text, business) {
 https://ton-domaine.com/connect/${business.id}`;
   }
 
-  // ACTIVE STATE
+  // ================= CONNECT WHATSAPP =================
   if (business.step === "connect_whatsapp") {
-    return "⚠️ Vous devez connecter votre WhatsApp pour activer le service.";
+    return "⚠️ Veuillez connecter votre WhatsApp pour activer votre assistant.";
   }
 
+  // ================= ACTIVE =================
   if (business.step === "active") {
-    if (text.includes("menu")) {
+    if (text.toLowerCase().includes("menu")) {
       return "🍔 Menu: Burger 30dh, Pizza 50dh";
     }
 
-    return "🤖 Je suis votre assistant. Tapez 'menu' pour voir les produits.";
+    return "🤖 Assistant actif. Écrivez 'menu' pour voir les produits.";
   }
 
-  return "Commande non reconnue.";
+  return "Commande non comprise 🤔";
 }
-
 
 // ================= WEBHOOK VERIFY =================
 app.get("/webhook", (req, res) => {
@@ -105,7 +139,6 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-
 // ================= WEBHOOK RECEIVE =================
 app.post("/webhook", async (req, res) => {
   try {
@@ -119,26 +152,25 @@ app.post("/webhook", async (req, res) => {
     const from = msg.from;
     const text = msg.text?.body;
 
-    // FIND BUSINESS BY PHONE NUMBER ID
-    const { data: business } = await supabase
-      .from("businesses")
-      .select("*")
-      .eq("whatsapp_phone_number_id", phone_number_id)
-      .maybeSingle();
+    console.log("📩 MESSAGE:", from, text);
 
-    // AGENT RESPONSE
+    // ================= FIND BUSINESS =================
+    const business = await findBusiness(from, phone_number_id);
+
+    console.log("🏪 BUSINESS:", business);
+
+    // ================= GET REPLY =================
     const reply = await agent(from, text, business);
 
-    // SEND MESSAGE
+    // ================= SEND RESPONSE =================
     await sendWhatsAppMessage(from, reply, phone_number_id);
 
     res.sendStatus(200);
   } catch (err) {
-    console.error(err);
+    console.error("❌ ERROR:", err);
     res.sendStatus(500);
   }
 });
-
 
 // ================= START =================
 const PORT = process.env.PORT || 3000;
