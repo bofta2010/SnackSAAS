@@ -1,6 +1,7 @@
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const fetch = require("node-fetch");
+const connectRoutes = require("./routes/connectRoutes");
 
 const app = express();
 app.use(express.json());
@@ -12,6 +13,7 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+app.use("/", connectRoutes(supabase));
 console.log("SUPABASE KEY START:", SUPABASE_KEY.slice(0, 20));
 
 // ================= TEST =================
