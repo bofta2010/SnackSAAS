@@ -125,7 +125,7 @@ async function agent(from, text, business) {
     return `🎉 Inscription terminée !
 
 📲 Maintenant connectez votre WhatsApp ici:
-${BASE_URL}/connect/${business.id}`;
+${BASE_URL}/auth/meta/${business.id}`;
   }
 
   // ================= CONNECT WHATSAPP =================
