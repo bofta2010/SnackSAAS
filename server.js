@@ -11,6 +11,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const BASE_URL = process.env.BASE_URL;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 app.use("/", connectRoutes(supabase));
@@ -121,8 +122,8 @@ async function agent(from, text, business) {
 
     return `🎉 Inscription terminée !
 
-📲 Maintenant connectez votre WhatsApp ici :
-https://ton-domaine.com/connect/${business.id}`;
+📲 Maintenant connectez votre Whatsapp Ici:
+${BASE_URL}/connect/${business.id}
   }
 
   // ================= CONNECT WHATSAPP =================
